@@ -6,7 +6,7 @@ import re
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
-
+import gc
 
 
 st.set_page_config(
@@ -424,30 +424,26 @@ if uploaded_file is not None:
 
     recorder_df = merged[recorder_cols].copy()
 
-    # ------------------------
-    # --- Show DataFrame & Download ---
-    # ------------------------
+#     # ------------------------
+#     # --- Show DataFrame & Download ---
+#     # ------------------------
     st.subheader("Parsed Schedule")
     st.dataframe(recorder_df)
 
-    output = BytesIO()
-    recorder_df.to_excel(output, index=False)
-    output.seek(0)
+
+    def generate_excel_bytes(df):
+        output = BytesIO()
+        df.to_excel(output, index=False)
+        output.seek(0)
+        return output.getvalue()  # return bytes, not BytesIO object
 
     st.download_button(
         "Download Excel",
-        data=output,
-        file_name=f"{base_name}_schedule.xlsx",
+        data=generate_excel_bytes(recorder_df),
+        file_name="schedule.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    
-    
-    # ------------------------
-    # --- Cleanup memory ---
-    # ------------------------
-    # Only do this AFTER the download button is created
-    del uploaded_file, text, blocks, df, merged, output, recorder_df
-    import gc
+# Immediately delete the DataFrame and force garbage collection
+    del uploaded_file, text, blocks, df, merged, recorder_df
     gc.collect()
-
