@@ -75,9 +75,15 @@ record_keywords = [
 # ------------------------
 uploaded_file = st.file_uploader("Upload PDF", type="pdf")
 if uploaded_file is not None:
-    input_pdf = uploaded_file  # Use uploaded PDF
-
-
+    # Clear previous objects first
+    try:
+        del df, merged, output, recorder_df, blocks, text
+        import gc
+        gc.collect()
+    except NameError:
+        pass  # objects might not exist yet
+    
+    input_pdf = uploaded_file
     
     # ------------------------
     # --- 0. PDF Parsing ---
@@ -437,5 +443,11 @@ if uploaded_file is not None:
 
     
     
-
+    # ------------------------
+    # --- Cleanup memory ---
+    # ------------------------
+    # Only do this AFTER the download button is created
+    del uploaded_file, text, blocks, df, merged, output, recorder_df
+    import gc
+    gc.collect()
 
