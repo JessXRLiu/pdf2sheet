@@ -5,6 +5,9 @@ import pdfplumber
 import re
 import pandas as pd
 from datetime import datetime
+from io import BytesIO
+
+
 
 st.set_page_config(
     page_title="Appointments to Daily Sheet",
@@ -67,59 +70,6 @@ record_keywords = [
 
 
 
-
-# # Example default CPT rules
-# default_cpt_rules = {
-#     "NP": [["99203"], ["99204"], ["99205"]],
-#     "SE": [["93320","93325","93351"], ["93351","93306"]],
-#     "Echo": [["93306"]],
-#     "PMC": [["93283","93289"], ["93282","93289"], ["93288","93280"]],
-#     "EKG": [["93000"]],
-#     "FU": [["99213"], ["99214"], ["99215"]],
-#     "TFU": [["99213"], ["99214"], ["99215"]],
-#     "LexiPET": [["78431"], ["78434"], ["93015"]],
-#     "RPMC": [],
-#     "CUS": [["93880"]]
-# }
-
-# # --- Tabs ---
-# tab1, tab2 = st.tabs(["Appointments", "CPT Editor"])
-
-# with tab1:
-#     st.header("Appointment Viewer")
-#     st.write("Your main appointment table and logic go here...")
-
-# with tab2:
-#     st.header("CPT Rules Editor")
-#     st.write("Edit CPT rules here. Use '&' to separate codes in a combo, and ',' to separate multiple combos for a type.")
-
-#     def dict_to_df(cpt_dict):
-#         rows = []
-#         for k, v in cpt_dict.items():
-#             combo_strings = ["&".join(combo) for combo in v]  # '&' as delimiter
-#             row_value = ",".join(combo_strings)
-#             rows.append((k, row_value))
-#         return pd.DataFrame(rows, columns=["Appt. Type", "CPT Codes"])
-
-#     cpt_df = dict_to_df(default_cpt_rules)
-#     edited_cpt_df = st.data_editor(cpt_df, num_rows="dynamic", key="cpt_editor")
-
-#     def df_to_dict(df):
-#         new_dict = {}
-#         for _, row in df.iterrows():
-#             combos = []
-#             if str(row["CPT Codes"]).strip():
-#                 for combo_str in row["CPT Codes"].split(","):
-#                     codes = [code.strip() for code in combo_str.split("&") if code.strip()]
-#                     if codes:
-#                         combos.append(codes)
-#             new_dict[row["Appt. Type"]] = combos
-#         return new_dict
-
-#     cpt_rules = df_to_dict(edited_cpt_df)
-#     st.write("Updated CPT rules:")
-#     st.json(cpt_rules)
-
 # ------------------------
 # --- PDF Upload ---
 # ------------------------
@@ -127,6 +77,8 @@ uploaded_file = st.file_uploader("Upload PDF", type="pdf")
 if uploaded_file is not None:
     input_pdf = uploaded_file  # Use uploaded PDF
 
+
+    
     # ------------------------
     # --- 0. PDF Parsing ---
     # ------------------------
@@ -232,8 +184,6 @@ if uploaded_file is not None:
 
             else:
                 insurance = ""
-                # ✅ Print warning but continue running
-                print(f"⚠️ Warning: Insurance field missing for block:\n{block[:120]}...\n")
 
         d["Insurance"] = insurance
 
@@ -257,7 +207,6 @@ if uploaded_file is not None:
     blocks = split_appointments(text)
     rows = [parse_block(b) for b in blocks if parse_block(b)]
     df = pd.DataFrame(rows)
-    df.to_excel(f"{base_name}_df.xlsx", index=False)
 
     # ------------------------
     # --- 1. Setup & Rename ---
@@ -475,40 +424,18 @@ if uploaded_file is not None:
     st.subheader("Parsed Schedule")
     st.dataframe(recorder_df)
 
-    # Download button
-    recorder_df.to_excel(f"{base_name}_schedule.xlsx", index=False)
-    with open(f"{base_name}_schedule.xlsx", "rb") as f:
-        st.download_button("Download Excel", f, file_name=f"{base_name}_schedule.xlsx")
+    output = BytesIO()
+    recorder_df.to_excel(output, index=False)
+    output.seek(0)
 
+    st.download_button(
+        "Download Excel",
+        data=output,
+        file_name=f"{base_name}_schedule.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-#     # Columns that are always shown
-#     default_cols = ["Appt. Time", "Patient", "Appt. Type", "A", "A_Fail_Reason", "Notes"]
-
-#     # Optional columns
-#     optional_cols = ["Insurance", "Athena", "Current_CPTs", "CPT_Valid", "M"]
-
-#     # Let user select which optional columns to display
-#     selected_optional = st.multiselect(
-#         "Select additional columns to display",
-#         options=optional_cols,
-#         default=[]  # you can pre-select some if you want
-#     )
-
-#     # Combine default + selected optional columns
-#     display_cols = default_cols + selected_optional
-#     recorder_df_display = recorder_df[display_cols]
-
-#     # Show DataFrame
-#     st.subheader("Parsed Schedule")
-#     st.dataframe(recorder_df_display)
-
-#     # Download button
-#     recorder_df_display.to_excel(f"{base_name}_schedule.xlsx", index=False)
-#     with open(f"{base_name}_schedule.xlsx", "rb") as f:
-#         st.download_button(
-#             "Download Excel",
-#             f,
-#             file_name=f"{base_name}_schedule.xlsx"
-#         )
+    
+    
 
 
