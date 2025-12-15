@@ -44,20 +44,26 @@ appt_map = {
     "Telehealth Follow-Up": "TFU",
     "New Patient": "NP",
     "Lexiscan PET": "LexiPET",
-    "Lexiscan": "LexiPET"
+    "Lexiscan": "LexiPET",
+    "Holter Monitor (HM)": "HM",    
+    "Holter Monitor (HM-7)": "HM-7",
+    "Holter Monitor (HM) Removal": "HMR",    
+    "Holter Monitor (HM-7)": "HM-7R"  
 }
 
 cpt_rules = {
     "NP":   [["99203"], ["99204"], ["99205"]],
     "SE":   [["93320","93325","93351"], ["93351","93306"]],
     "Echo": [["93306"]],
-    "PMC":  [["93283","93289"], ["93282","93289"], ["93288","93280"]],
+    "PMC":  [["93283","93289"], ["93282","93289"], ["93288","93280"],["93284","93289"]],
     "EKG":  [["93000"]],
     "FU":   [["99213"], ["99214"], ["99215"]],
     "TFU":  [["99213"], ["99214"], ["99215"]],
-    "LexiPET": [["78431"], ["78434"], ["93015"]],
-    "RPMC": [],
-    "CUS": [["93880"]]
+    "LexiPET": [["78431", "78434", "93015", "A9555", "J2785"]],
+    "RPMC": [["93294"],["93293"]],
+    "CUS": [["93880"]],
+    "HMR": [["93224"]],
+    "HM-7R":[["93241"]]
     
 }
 
@@ -172,6 +178,7 @@ if uploaded_file is not None:
             med_match = re.search(r"(MEDICARE-CA SOUTHERN[^\n]*)", block, flags=re.IGNORECASE)
             ppo_match = re.search(r"(PPO[^\n]*)", block, flags=re.IGNORECASE)
             epo_match = re.search(r"(EPO[^\n]*)", block, flags=re.IGNORECASE)
+            pos_match = re.search(r"(POS[^\n]*)", block, flags=re.IGNORECASE)
 
             if med_match:
                 id_match = re.search(r"#\w+", med_match.group(1))
@@ -187,6 +194,11 @@ if uploaded_file is not None:
                 id_match = re.search(r"#\w+", epo_match.group(1))
                 epo_id = id_match.group(0) if id_match else ""
                 insurance = f"EPO {epo_id}".strip()
+                
+            elif pos_match:
+                id_match = re.search(r"#\w+", pos_match.group(1))
+                pos_id = id_match.group(0) if id_match else ""
+                insurance = f"POS {pos_id}".strip()
 
             else:
                 insurance = ""
@@ -319,10 +331,23 @@ if uploaded_file is not None:
         axis=1
     )
 
+    # ------------------------
+    # --- 6. Name parsing ---
+    # ------------------------
+
+    def split_name(name):
+        parts = [p.strip().title() for p in name.split(",")]
+        last = parts[0]
+        first = parts[1].split()[0] if len(parts) > 1 else ""
+        return last, first
+
+    df[["LastName", "FirstName"]] = df["Patient Name"].apply(
+        lambda x: pd.Series(split_name(x))
+    )
 
 
     # ------------------------
-    # --- 6. Merge multiple appointments per patient ---
+    # --- 7. Merge multiple appointments per patient ---
     # ------------------------
     def merge_appt_types(appt_list):
         appt_set = set(appt_list)
@@ -347,7 +372,8 @@ if uploaded_file is not None:
 
     merged = df.groupby('Athena').agg({
         'Appt. Time': 'min',
-        'Patient': lambda x: x.iloc[0],  # keep one representative patient name
+        "LastName": "first",
+        "FirstName": "first",
         'Appt. Type': lambda x: merge_appt_types(x),
         'Insurance': lambda x: max(x, key=len) if len(x) > 0 else "",
         'Notes': lambda x: " ".join(str(n) for n in x if str(n).strip() != ""),
@@ -361,14 +387,44 @@ if uploaded_file is not None:
 
 
     # ------------------------
-    # --- 7. Filter Notes to TFU only ---
+    # --- 8. Name disambiguation (For patients with the same LN) ---
+    # ------------------------
+    def disambiguate_names(df):
+        df = df.copy()
+        df["Patient"] = ""
+
+        for last, group in df.groupby("LastName"):
+            if len(group) == 1:
+                idx = group.index[0]
+                df.loc[idx, "Patient"] = last
+                continue
+
+            first_names = group["FirstName"].tolist()
+
+            for idx, fname in zip(group.index, first_names):
+                for i in range(1, len(fname) + 1):
+                    prefix = fname[:i]
+                    if all(
+                        other == fname or not other.startswith(prefix)
+                        for other in first_names
+                    ):
+                        df.loc[idx, "Patient"] = f"{last}, {prefix}"
+                        break
+
+        return df
+    
+    merged = disambiguate_names(merged)
+
+    
+    # ------------------------
+    # --- 9. Filter Notes to TFU only ---
     # ------------------------
     merged['Notes'] = merged['Notes'].apply(
         lambda x: " ".join([line for line in str(x).splitlines() if line.strip().startswith("TFU")])
     )
 
     # ------------------------
-    # --- 8. Drop notes after a CPT code ---
+    # --- 10. Drop notes after a CPT code ---
     # ------------------------
     def drop_after_cpt(notes):
         if not isinstance(notes, str):
@@ -380,7 +436,7 @@ if uploaded_file is not None:
 
 
     # ------------------------
-    # --- 9. Update A for invalid CPTs ---
+    # --- 11. Update A for invalid CPTs ---
     # ------------------------
     def append_cpt_fail_reason(row):
         if row['CPT_Valid'] is False and row['A'] not in {"M","PPO","EPO"}:
@@ -397,7 +453,7 @@ if uploaded_file is not None:
 
 
     # ------------------------
-    # --- 10. Sort & output ---
+    # --- 12. Sort & output ---
     # ------------------------
     merged['Time Sort'] = pd.to_datetime(merged['Appt. Time'], format='%I:%M %p')
     merged = merged.sort_values('Time Sort').reset_index(drop=True)
@@ -425,7 +481,7 @@ if uploaded_file is not None:
     recorder_df = merged[recorder_cols].copy()
 
 #     # ------------------------
-#     # --- Show DataFrame & Download ---
+#     # --- 13. Show DataFrame & Download ---
 #     # ------------------------
     st.subheader("Parsed Schedule")
     st.dataframe(recorder_df)
